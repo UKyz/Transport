@@ -7,11 +7,15 @@ import android.app.MediaRouteButton;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.AssetManager;
+import android.content.res.Resources;
 import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -33,15 +37,20 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 
 import static android.util.Log.println;
 
@@ -57,16 +66,22 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private double latitudeAvant;
     private double longitudeAvant;
     //private double altitude;
-    private float accuracy;
+    //private float accuracy;
 
     private boolean Go = false;
     private boolean GeoBegin = false;
 
-    private ArrayList<Double> distances = new ArrayList<>();
-    ArrayList<ArrayList<Double>> memPosition = new ArrayList();
-    private double moyenne = 5;
+    //private ArrayList<Double> distances = new ArrayList<>();
+    //ArrayList<ArrayList<Double>> memPosition = new ArrayList();
+
+    private double sommeTotal = 0;
+    private int nbElements = 0;
+    private double moyenne = 0;
+    private double sommeETCarre = 0;
     private double ecartType = 0;
+
     private int nbTrue;
+    private int nbFalse;
     private boolean creux = false;
     private boolean creux2 = false;
     double latCreux; double longCreux;
@@ -108,7 +123,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         TextView textGo = (TextView) findViewById(R.id.textGo);
         textGo.setVisibility(View.GONE);
 
-        moyenne = 5;
+        readFile();
 
     }
 
@@ -128,6 +143,65 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mMap.setMyLocationEnabled(true);
     }
 
+    public void readFile() {
+
+        File chemin = this.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        File fichier = new File(chemin, "fichier.txt");
+
+        String ligne;
+        //StringBuilder text = new StringBuilder();
+
+        try {
+
+            FileReader fReader = new FileReader(fichier);
+            BufferedReader bReader = new BufferedReader(fReader);
+
+            int cpt=0;
+            boolean isChoice = false;
+
+            while((ligne = bReader.readLine()) != null) {
+
+                if (cpt == 0) {
+
+                    ligne = ligne.replaceAll(" :", "");
+
+                    if (modeTransport.equals(ligne))
+                        isChoice = true;
+
+                    cpt++;
+                }
+                else {
+
+                    cpt = 0;
+
+                    if (isChoice) {
+
+                        String tab[] = ligne.replaceAll("\"", "/").split("/");
+
+                        double vitesse = Double.parseDouble(tab[11].replaceAll(",", "."));
+
+                        sommeTotal += vitesse;
+                        nbElements ++;
+                        moyenne = (sommeTotal/nbElements);
+                        sommeETCarre += Math.pow(vitesse, 2);
+
+                    }
+                }
+            }
+
+            ecartType = Math.sqrt((sommeETCarre / nbElements) - Math.pow(moyenne, 2));
+
+            /*Toast.makeText(this, String.valueOf(moyenne) + " / "
+                    + String.valueOf(ecartType), Toast.LENGTH_LONG).show();*/
+
+
+        } catch (Exception e){
+            //Toast.makeText(this, String.valueOf(e), Toast.LENGTH_LONG).show();
+            return;
+        }
+
+    }
+
     public void changeGo(View view){
         Go = true;
         Toast.makeText(this, "C'est parti !", Toast.LENGTH_LONG).show();
@@ -138,15 +212,42 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         textGo.setVisibility(View.VISIBLE);
     }
 
-    public void writeMarqueur(View view){
-        Toast.makeText(this, "C'est marqué !", Toast.LENGTH_LONG).show();
+    public void writeInFile(java.text.DecimalFormat df, double currentVitesse) {
 
         try {
             File chemin = this.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
             File fichier = new File(chemin, "fichier.txt");
             FileWriter filewriter = new FileWriter(fichier, true);
 
-            //Calendar rightNow = Calendar.getInstance();
+            String toPrint = modeTransport + " :\n" + String.format("\"" + latitude + "\", ") + String.format(
+                    "\"" + longitude + "\", ") + String.format("\"" + df.format(aX) + "\", \"" +
+                    df.format(aY) + "\", \"" + df.format(aZ) + "\", \"") + df.format(currentVitesse) + "\", \"" +
+                    currentDateFormat() + "\"\n";
+
+            sommeTotal += currentVitesse;
+            nbElements ++;
+            moyenne = (sommeTotal/nbElements);
+            sommeETCarre += Math.pow(currentVitesse, 2);
+            ecartType = Math.sqrt((sommeETCarre / nbElements) - Math.pow(moyenne, 2));
+
+            filewriter.write(toPrint);
+            filewriter.close();
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    public void writeMarqueur(View view) {
+        Toast.makeText(this, "C'est marqué !", Toast.LENGTH_LONG).show();
+
+        try {
+            File chemin = this.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            File fichier = new File(chemin, "fichier.txt");
+            FileWriter filewriter = new FileWriter(fichier, true);
 
             String toPrint = "\nMarqueur\n\n";
 
@@ -166,7 +267,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         return currentTimeStamp;
     }
 
-    static double DistanceTo(double lat1, double lon1, double lat2, double lon2, String unit)
+    /*static double DistanceTo(double lat1, double lon1, double lat2, double lon2, String unit)
     {
         double rlat1 = Math.PI * lat1/180;
         double rlat2 = Math.PI * lat2/180;
@@ -186,9 +287,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         if (unit == "N") { dist = dist * 0.8684; }
 
         return dist;
-    }
+    }*/
 
-    public boolean ecartType(double distance) {
+    /*public boolean ecartType(double distance) {
 
         if (distances.size() < 3)
             return false;
@@ -205,41 +306,87 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
             ecartType = Math.sqrt(ecartType / distances.size());
 
-            if (distance > (moyenne - ecartType) && distance < (moyenne + ecartType))
+            if (distance > (moyenne - (ecartType*1.5)) && distance < (moyenne + (ecartType*1.5)))
                 return true;
             else
                 return false;
         }
-    }
+    }*/
 
-    /*public void checkPositions() {
+    public void drawPolyline(double currentVitesse) {
 
-        if (memPosition.size() > 3) {
-            int nbTrue = 0;
-            for (int i=0; i<memPosition.size(); i++) {
+        /*if (ecartType(currentDistance) && currentDistance > 2 && currentDistance < (moyenne * 3)) {
 
-                if (memPosition.get(i).get(3) > 1)
-                    nbTrue++;
-                else {
-                    if (nbTrue >= 2 && memPosition.get(i).get(2) > 2) {
-                        mMap.addPolyline((new PolylineOptions())
-                                .add(new LatLng(memPosition.get(i-1).get(0), memPosition.get(i-1).get(1)),
-                                        new LatLng(memPosition.get(i).get(0), memPosition.get(i).get(1)))
-                                .width(5).color(Color.BLUE)
-                                .geodesic(true));
-                        memPosition.get(i).set(3, 0.0);
-                    }
-                    else
-                        nbTrue = 0;
+            if (creux) {
+                mMap.addPolyline((new PolylineOptions())
+                        .add(new LatLng(latCreux, longCreux),
+                                new LatLng(latitudeAvant, longitudeAvant))
+                        .width(5).color(Color.BLUE)
+                        .geodesic(true));
+                creux = false;
+            }
+
+            mMap.addPolyline((new PolylineOptions())
+                    .add(new LatLng(latitudeAvant, longitudeAvant),
+                            new LatLng(latitude, longitude))
+                    .width(5).color(Color.BLUE)
+                    .geodesic(true));
+
+            nbTrue++;
+        }
+        else {
+            if (nbTrue >= 2) {
+                if (!creux) {
+                    creux = true;
+                    latCreux = latitudeAvant;
+                    longCreux = longitudeAvant;
+                }
+            }
+            else {
+                nbTrue = 0;
+                creux = false;
+            }
+        }*/
+
+        if (currentVitesse > 0) {
+
+            if (nbFalse < 2) {
+                if (creux) {
+                    mMap.addPolyline((new PolylineOptions())
+                            .add(new LatLng(latCreux, longCreux),
+                                    new LatLng(latitudeAvant, longitudeAvant))
+                            .width(5).color(Color.BLUE)
+                            .geodesic(true));
+                    creux = false;
                 }
 
+                mMap.addPolyline((new PolylineOptions())
+                        .add(new LatLng(latitudeAvant, longitudeAvant),
+                                new LatLng(latitude, longitude))
+                        .width(5).color(Color.BLUE)
+                        .geodesic(true));
+            }
+
+            nbTrue++;
+
+        }
+        else {
+            if (nbTrue >= 2) {
+                if (!creux) {
+                    creux = true;
+                    latCreux = latitudeAvant;
+                    longCreux = longitudeAvant;
+                }
+                nbFalse = 0;
+            }
+            else {
+                nbTrue = 0;
+                creux = false;
+                nbFalse ++;
             }
         }
 
-        if (memPosition.size() == 10)
-            memPosition.remove(0);
-
-    }*/
+    }
 
     @Override
     protected void onResume() {
@@ -268,9 +415,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         longitude = location.getLongitude();
         double currentVitesse = location.getSpeed() * 3.6;
         //altitude = location.getAltitude();
-        accuracy = location.getAccuracy();
+        //accuracy = location.getAccuracy();
 
-        double currentDistance = DistanceTo(latitudeAvant, longitudeAvant, latitude, longitude, "M");
+        //double currentDistance = DistanceTo(latitudeAvant, longitudeAvant, latitude, longitude, "M");
 
         java.text.DecimalFormat df = new java.text.DecimalFormat("0.##");
 
@@ -280,76 +427,46 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
 
         if (Go) {
+
+            this.writeInFile(df, currentVitesse);
+
+            this.drawPolyline(currentVitesse);
+
+            /*Geocoder geoCoder = new Geocoder(getBaseContext());
+            List<Address> matches = null;
             try {
-                File chemin = this.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-                File fichier = new File(chemin, "fichier.txt");
-                FileWriter filewriter = new FileWriter(fichier, true);
-
-                String toPrint = modeTransport + " :\n" + String.format("\"" + latitude + "\", ") + String.format(
-                        "\"" + longitude + "\", ") + String.format("\"" + df.format(aX) + ";" + df.format(aY) + ";"
-                        + df.format(aZ) + "\", ") + df.format(currentVitesse) + "\", \""
-                        + df.format(currentDistance) + "\", \"" + currentDateFormat() + "\"\n";
-
-                filewriter.write(toPrint);
-                filewriter.close();
-
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
+                matches = geoCoder.getFromLocation(latitude, longitude, 1);
             } catch (IOException e) {
                 e.printStackTrace();
             }
+            Address bestMatch = (matches.isEmpty() ? null : matches.get(0));
 
-            if (ecartType(currentDistance) && currentDistance > 2 && currentDistance < (moyenne * 3)) {
+            bestMatch.getThoroughfare()*/
 
-                if (creux) {
-                    mMap.addPolyline((new PolylineOptions())
-                            .add(new LatLng(latCreux, longCreux),
-                                    new LatLng(latitudeAvant, longitudeAvant))
-                            .width(5).color(Color.BLUE)
-                            .geodesic(true));
-                    creux = false;
-                }
 
-                mMap.addPolyline((new PolylineOptions())
-                        .add(new LatLng(latitudeAvant, longitudeAvant),
-                                new LatLng(latitude, longitude))
-                        .width(5).color(Color.BLUE)
-                        .geodesic(true));
+            String chaineAcceleration = "";
 
-                nbTrue++;
-            }
-            else {
-                if (nbTrue >= 2) {
-                    if (!creux) {
-                        creux = true;
-                        latCreux = latitudeAvant;
-                        longCreux = longitudeAvant;
-                    }
-                }
-                else {
-                    nbTrue = 0;
-                    creux = false;
-                }
-            }
+            if (currentVitesse < 2)
+                chaineAcceleration = "Mouvement nulle ou quasi nulle : " + df.format(currentVitesse);
+            else if (currentVitesse < (moyenne-ecartType))
+                chaineAcceleration = "Mouvement lent : " + df.format(currentVitesse);
+            else if (currentVitesse > (moyenne+ecartType))
+                chaineAcceleration = "Mouvement rapide : " + df.format(currentVitesse);
+            else
+                chaineAcceleration = "Mouvement normal : " + df.format(currentVitesse);
 
-            TextView textGo = (TextView) findViewById(R.id.textGo);
-            //textGo.setText(aX + ";" + aY + ";" +aZ);
-            textGo.setText(String.format(String.valueOf(df.format(DistanceTo(latitudeAvant,
-                    longitudeAvant, latitude, longitude, "M"))) + " : " + String.valueOf(df.format(moyenne))
-                    + ", [ " + String.valueOf(df.format(moyenne - ecartType)) + ":" +
-                    String.valueOf(df.format(moyenne + ecartType)) + "]"));
+
+
+            TextView textGo = findViewById(R.id.textGo);
+            textGo.setText(String.format(chaineAcceleration + " ["
+                    + df.format(moyenne - ecartType) + ";"
+                    + df.format(moyenne + ecartType)
+                    + "]"));
 
             // Accélération rapide, lente, arrêt
 
             // Chemin de fer ou une rue, Regarder si c'est possible et comment faire
 
-        }
-
-        if (currentDistance < (moyenne * 3) && currentDistance > 2) {
-            if (distances.size() == 10)
-                distances.remove(0);
-
-            distances.add(currentDistance);
         }
     }
 
